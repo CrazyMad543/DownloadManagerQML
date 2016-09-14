@@ -1,44 +1,51 @@
 #include "data.h"
 
-Data::Data(QObject *parent) : QObject(parent) {
+#include <QtNetwork/QNetworkAccessManager>
+#include <QtNetwork/QNetworkRequest>
+#include <QFileInfo>
+#include <QByteArray>
+
+
+Data::Data(QObject *parent)
+    : QObject(parent)
+{
     m_value = 0;
     m_maximumValue = 0;
 }
 
-void Data::replyFinished() {
+void Data::onReplyFinished() {
     startDownload = false;
     file->close();
-    delete reply;
+    reply->deleteLater();
 }
 
 void Data::onReadyRead() {
-    if(reply->error() != QNetworkReply::NoError) {
-        qDebug() << reply->errorString();
-    }
-    else {
-        QByteArray content = reply->read(reply->bytesAvailable());
-        file->write(content);
-        file->flush();
-    }
+    QByteArray content = reply->read(reply->bytesAvailable());
+    file->write(content);
+}
+
+void Data::onError(QNetworkReply::NetworkError code) {
+    qWarning() << "Error:" << code;
+    startDownload = false;
+    file->close();
+    reply->deleteLater();
 }
 
 void Data::download(QString url) {
     startDownload = true;
+
     QNetworkRequest request;
     request.setUrl(QUrl(url));
-    QFileInfo fileInfo(url);
-    fileName = fileInfo.fileName();
-    file = new QFile(fileName);
-    file->open(QIODevice::WriteOnly | QIODevice::Append);
+
+    file = new QFile( QFileInfo(url).fileName() );
+    file->open(QIODevice::WriteOnly | QIODevice::Truncate);
 
     manager = new QNetworkAccessManager(this);
     reply = manager->get(request);
-    connect(reply, &QNetworkReply::downloadProgress,
-                           this, &Data::onDownloadProgress);
-    connect(reply, &QNetworkReply::finished,
-                           this, &Data::replyFinished);
-    connect(reply, &QNetworkReply::readyRead,
-                           this, &Data::onReadyRead);
+    connect(reply, &QNetworkReply::downloadProgress, this, &Data::onDownloadProgress);
+    connect(reply, &QNetworkReply::finished, this, &Data::onReplyFinished);
+    connect(reply, &QNetworkReply::readyRead, this, &Data::onReadyRead);
+    connect(reply, static_cast<void(QNetworkReply::*)(QNetworkReply::NetworkError)>(&QNetworkReply::error), this, &Data::onError);
 }
 
 void Data::onDownloadProgress(qint64 readBytes, qint64 totalBytes) {
@@ -52,5 +59,3 @@ void Data::onDownloadProgress(qint64 readBytes, qint64 totalBytes) {
         emit valueChanged();
     }
 }
-
-
